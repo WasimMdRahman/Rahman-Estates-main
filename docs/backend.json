@@ -1,0 +1,162 @@
+{
+  "entities": {
+    "Property": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "title": "Property",
+      "type": "object",
+      "description": "Represents a real estate property listing.",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique identifier for the Property entity."
+        },
+        "title": {
+          "type": "string",
+          "description": "Title of the property listing."
+        },
+        "description": {
+          "type": "string",
+          "description": "Detailed description of the property."
+        },
+        "location": {
+          "type": "string",
+          "description": "Location of the property (e.g., address)."
+        },
+        "price": {
+          "type": "number",
+          "description": "Price of the property."
+        },
+        "size": {
+          "type": "number",
+          "description": "Size of the property (e.g., square footage)."
+        },
+        "bedrooms": {
+          "type": "number",
+          "description": "Number of bedrooms in the property."
+        },
+        "bathrooms": {
+          "type": "number",
+          "description": "Number of bathrooms in the property."
+        },
+        "imageUrls": {
+          "type": "array",
+          "description": "Array of URLs for property images.",
+          "items": {
+            "type": "string"
+          }
+        },
+        "amenities": {
+          "type": "array",
+          "description": "List of amenities offered by the property.",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "required": [
+        "id",
+        "title",
+        "description",
+        "location",
+        "price",
+        "size"
+      ]
+    },
+    "User": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "title": "User",
+      "type": "object",
+      "description": "Represents a user of the Aether Estates platform.",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique identifier for the User entity."
+        },
+        "email": {
+          "type": "string",
+          "description": "Email address of the user.",
+          "format": "email"
+        },
+        "name": {
+          "type": "string",
+          "description": "Full name of the user."
+        },
+        "likedPropertyIds": {
+          "type": "array",
+          "description": "References to Properties liked by the user. (Relationship: User 1:N Property)",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "required": [
+        "id",
+        "email",
+        "name"
+      ]
+    }
+  },
+  "auth": {
+    "providers": [
+      "password",
+      "anonymous"
+    ]
+  },
+  "firestore": {
+    "structure": [
+      {
+        "path": "/users/{userId}",
+        "definition": {
+          "entityName": "User",
+          "schema": {
+            "$ref": "#/backend/entities/User"
+          },
+          "description": "Stores user profiles. Uses path-based ownership for user data.",
+          "params": [
+            {
+              "name": "userId",
+              "description": "The unique identifier for the user."
+            }
+          ]
+        }
+      },
+      {
+        "path": "/properties/{propertyId}",
+        "definition": {
+          "entityName": "Property",
+          "schema": {
+            "$ref": "#/backend/entities/Property"
+          },
+          "description": "Stores property listings. Anyone can read but restricted write access.",
+          "params": [
+            {
+              "name": "propertyId",
+              "description": "The unique identifier for the property."
+            }
+          ]
+        }
+      },
+      {
+        "path": "/users/{userId}/likedProperties/{propertyId}",
+        "definition": {
+          "entityName": "Property",
+          "schema": {
+            "$ref": "#/backend/entities/Property"
+          },
+          "description": "Stores the user's liked properties, ensuring proper ownership and data isolation.",
+          "params": [
+            {
+              "name": "userId",
+              "description": "The unique identifier for the user."
+            },
+            {
+              "name": "propertyId",
+              "description": "The unique identifier for the property."
+            }
+          ]
+        }
+      }
+    ],
+    "reasoning": "The Firestore structure is designed to ensure security, scalability, and ease of debugging, following the principles of Authorization Independence, Clarity of Intent, DBAC (Database-Based Access Control), and QAPs (Rules are not Filters). Authorization Independence is achieved through denormalization of authorization data. Path-Based Ownership and Membership Maps are used to model access consistently.\\n\\n*   `/users/{userId}`: Stores user profiles. This enables simple ownership-based rules for user-specific data.\\n*   `/properties/{propertyId}`: Stores property listings. Anyone can read but restricted write access.\\n*   `/users/{userId}/likedProperties/{propertyId}`: Stores the user's liked properties, ensuring proper ownership and data isolation.\\n\\nThe structure supports required QAPs:\\n\\n*   Property Listings: List operations are secure, as rules can filter properties based on attributes like price, location, etc., without requiring complex `get()` calls.\\n*   Liked Properties: List operations are secure because each liked property is stored under the user's document, ensuring that only the user can access their liked properties."
+  }
+}

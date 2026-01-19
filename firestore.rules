@@ -1,0 +1,101 @@
+/**
+ * This ruleset enforces a security model for the Aether Estates real estate application.
+ *
+ * Core Philosophy:
+ * The security model is primarily user-centric. User data is strictly private and owned by the user.
+ * Public data, like property listings, is readable by anyone but has restricted write access.
+ * The default posture is to deny all access unless explicitly granted.
+ *
+ * Data Structure:
+ * - /users/{userId}: Contains private user profiles and serves as the root for user-owned subcollections.
+ * - /users/{userId}/likedProperties/{propertyId}: A user-specific subcollection containing properties they have liked.
+ * - /properties/{propertyId}: A top-level collection for all property listings, intended for public browsing.
+ *
+ * Key Security Decisions:
+ * - User Enumeration Disabled: Listing documents in the top-level `/users` collection is disallowed to protect user privacy.
+ * - Restricted Property Writes: Writing to the public `/properties` collection is disabled for all clients by default. This assumes property listings are managed by a trusted backend or admin role, which is the most secure default when an ownership model isn't defined.
+ * - Structural Segregation: A user's private list of "liked" properties is stored in a separate `/users/{userId}/likedProperties` subcollection. This is more secure and performant for queries than storing all likes in a single collection with access flags.
+ */
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Helper functions for reusable logic
+    // ------------------------------------
+
+    /**
+     * Checks if the user is authenticated.
+     */
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    /**
+     * Checks if the currently authenticated user's UID matches the provided userId.
+     * This is the foundation of path-based ownership.
+     */
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    /**
+     * Checks for ownership on an existing document. Used for safe updates and deletes.
+     * Prevents operations on non-existent documents.
+     */
+    function isExistingOwner(userId) {
+      return isOwner(userId) && resource != null;
+    }
+
+    /**
+     * @description Rules for a user's profile document.
+     * @path /users/{userId}
+     * @allow (create) A new user can create their own profile document. `auth.uid: 'user_abc', path: '/users/user_abc'`
+     * @allow (get) An authenticated user can read their own profile. `auth.uid: 'user_abc', path: '/users/user_abc'`
+     * @deny (list) A user cannot list all other users in the database. `auth.uid: 'user_abc', path: '/users'`
+     * @deny (update) A user cannot update another user's profile. `auth.uid: 'user_xyz', path: '/users/user_abc'`
+     * @principle Restricts access to a user's own data tree and prevents user enumeration.
+     */
+    match /users/{userId} {
+      allow get: if isOwner(userId);
+      allow list: if false; // Disallow listing all users to protect privacy.
+      allow create: if isOwner(userId) && request.resource.data.id == userId;
+      allow update: if isExistingOwner(userId) && request.resource.data.id == resource.data.id;
+      allow delete: if isExistingOwner(userId);
+
+      /**
+       * @description Rules for a user's subcollection of liked properties.
+       * @path /users/{userId}/likedProperties/{propertyId}
+       * @allow (create) A user can add a property to their own liked list. `auth.uid: 'user_abc', path: '/users/user_abc/likedProperties/prop_123'`
+       * @allow (list) A user can list all properties they have liked. `auth.uid: 'user_abc', path: '/users/user_abc/likedProperties'`
+       * @deny (get) A user cannot read another user's liked properties. `auth.uid: 'user_xyz', path: '/users/user_abc/likedProperties/prop_123'`
+       * @principle Enforces strict data isolation using path-based ownership for user-specific subcollections.
+       */
+      match /likedProperties/{propertyId} {
+        allow get: if isOwner(userId);
+        allow list: if isOwner(userId);
+        allow create: if isOwner(userId);
+        allow update: if isExistingOwner(userId);
+        allow delete: if isExistingOwner(userId);
+      }
+    }
+
+    /**
+     * @description Rules for public property listings.
+     * @path /properties/{propertyId}
+     * @allow (get) Any user, signed in or not, can view a property listing. `auth.uid: null, path: '/properties/prop_123'`
+     * @allow (list) Any user, signed in or not, can list all properties. `auth.uid: 'user_abc', path: '/properties'`
+     * @deny (create) No client is allowed to create new property listings directly.
+     * @deny (update) No client is allowed to modify property listings.
+     * @principle Defines a public, read-only data collection. Writes are denied pending a secure management strategy (e.g., Admin SDK).
+     */
+    match /properties/{propertyId} {
+      allow get: if true;
+      allow list: if true;
+      // CRITICAL: Cannot implement owner-only writes. The 'Property' entity is missing an 'ownerId' or 'authorId' field.
+      // Assuming writes are handled by a trusted server environment (e.g., Admin SDK) until the schema is updated.
+      allow create: if false; // TODO: Add owner validation once the schema is updated with an ownership field.
+      allow update: if false; // TODO: Add owner validation once the schema is updated with an ownership field.
+      allow delete: if false; // TODO: Add owner validation once the schema is updated with an ownership field.
+    }
+  }
+}
